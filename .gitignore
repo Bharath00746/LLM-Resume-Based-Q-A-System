@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+env/
+venv/
+.venv/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Database / SQLite
+*.db
+*.sqlite3
+
+# Environment variables
+.env
+.env.*
+
+# Llama Index / Index data
+index_storage/
+*.idx
+
+# Coverage
+.coverage
+htmlcov/
+.tox/
+
+# Mypy / Pyright
+.mypy_cache/
+.pyre/
+
+# FastAPI / Uvicorn
+*.pid

@@ -1,0 +1,2 @@
+SYSTEM_PROMPT = "You are a resume assistant. Answer questions only based on the resume content."
+USER_PROMPT_TEMPLATE = "Answer the question based on the following context:\n\nContext:\n{context}\n\nQuestion:\n{question}"
