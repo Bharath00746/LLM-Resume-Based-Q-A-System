@@ -2,7 +2,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List, Generator, AsyncGenerator, Optional
 import logging
-import json
+import shutil
 
 import google.generativeai as genai
 
@@ -42,13 +42,8 @@ class GeminiLLM(LLM):
 
     @property
     def metadata(self) -> LLMMetadata:
-        return LLMMetadata(
-            context_window=8192,
-            num_output=1024,
-            model_name=self._model_name
-        )
+        return LLMMetadata(context_window=8192, num_output=1024, model_name=self._model_name)
 
-    # ---------------- sync completions ----------------
     def complete(self, prompt: str, **kwargs) -> str:
         resp = self._model.generate_content(prompt)
         return getattr(resp, "text", str(resp)) or str(resp)
@@ -56,7 +51,6 @@ class GeminiLLM(LLM):
     async def acomplete(self, prompt: str, **kwargs) -> str:
         return self.complete(prompt, **kwargs)
 
-    # ---------------- chat API ----------------
     def chat(self, messages: List[Dict[str, str]], **kwargs) -> str:
         prompt = "\n".join([f"{m.get('role','user')}: {m.get('content','')}" for m in messages])
         return self.complete(prompt, **kwargs)
@@ -64,7 +58,6 @@ class GeminiLLM(LLM):
     async def achat(self, messages: List[Dict[str, str]], **kwargs) -> str:
         return self.chat(messages, **kwargs)
 
-    # ---------------- streaming fallback ----------------
     def stream_complete(self, prompt: str, **kwargs) -> Generator[str, None, None]:
         yield self.complete(prompt, **kwargs)
 
@@ -77,7 +70,6 @@ class GeminiLLM(LLM):
     async def astream_chat(self, messages: List[Dict[str, str]], **kwargs) -> AsyncGenerator[str, None]:
         yield self.chat(messages, **kwargs)
 
-
 # ---------------- Setup helpers ---------------- #
 def _init_llm_and_embeddings():
     llm = GeminiLLM(model="gemini-1.5-flash", api_key=settings.GEMINI_API_KEY)
@@ -85,27 +77,23 @@ def _init_llm_and_embeddings():
     LISettings.llm = llm
     LISettings.embed_model = embed_model
     LISettings.node_parser = SentenceSplitter(chunk_size=800, chunk_overlap=120)
-    return embed_model.model_name  # Return model name for consistency check
-
+    return embed_model.model_name  # Return for consistency check
 
 def _resume_path() -> Path:
     return Path(settings.RESUME_DIR) / settings.RESUME_FILENAME
 
-
 def _storage_path() -> Path:
     return Path(settings.INDEX_DIR)
-
 
 def build_or_load_index(force_rebuild: bool = False) -> VectorStoreIndex:
     embed_model_name = _init_llm_and_embeddings()
     storage_dir = _storage_path()
 
-    # Check for existing index and embedding model consistency
+    # Load existing index if present
     if storage_dir.exists() and not force_rebuild:
         try:
             storage_ctx = StorageContext.from_defaults(persist_dir=str(storage_dir))
             index = load_index_from_storage(storage_ctx)
-            # Check if stored embedding model matches current model
             stored_metadata = storage_ctx.to_dict().get("metadata", {})
             stored_embed_model = stored_metadata.get("embed_model_name", "unknown")
             if stored_embed_model != embed_model_name:
@@ -118,9 +106,8 @@ def build_or_load_index(force_rebuild: bool = False) -> VectorStoreIndex:
             logger.warning(f"Failed to load index, rebuilding: {e}")
             force_rebuild = True
 
+    # Delete old index if rebuilding
     if force_rebuild and storage_dir.exists():
-        # Delete existing index to avoid dimension conflicts
-        import shutil
         shutil.rmtree(storage_dir)
         logger.info(f"Deleted existing index at {storage_dir}")
 
@@ -129,20 +116,18 @@ def build_or_load_index(force_rebuild: bool = False) -> VectorStoreIndex:
         raise FileNotFoundError(f"❌ Resume not found at {resume_file}")
 
     docs: List[Document] = SimpleDirectoryReader(input_files=[str(resume_file)]).load_data()
-    logger.info(f"Loaded documents: {[doc.text[:100] for doc in docs]}")
+    logger.info(f"Loaded {len(docs)} document(s). Sample text: {[doc.text[:200] for doc in docs]}")
+
     index = VectorStoreIndex.from_documents(docs)
-    # Store embedding model name in index metadata
     index.storage_context.metadata = {"embed_model_name": embed_model_name}
     index.storage_context.persist(persist_dir=str(storage_dir))
     logger.info(f"✅ Index built and persisted at {storage_dir} with embedding model: {embed_model_name}")
     return index
 
-
 def get_query_engine(index: VectorStoreIndex) -> RetrieverQueryEngine:
     retriever = VectorIndexRetriever(index=index, similarity_top_k=settings.TOP_K)
     synthesizer = get_response_synthesizer()
     return RetrieverQueryEngine(retriever=retriever, response_synthesizer=synthesizer)
-
 
 def grounded_answer(
     index: VectorStoreIndex,
@@ -159,13 +144,17 @@ def grounded_answer(
 
     qe = get_query_engine(index)
     nodes = qe.retriever.retrieve(question)
-    logger.info(f"Retrieved nodes for '{question}': {[n.node.get_content()[:100] for n in nodes]}")
-    logger.info(f"Node scores: {[getattr(n, 'score', 0) for n in nodes]}")
 
-    filtered_nodes = [n for n in nodes if getattr(n, "score", 1) >= 0.5]  # Lowered cutoff for better retrieval
+    # Debug prints
+    logger.info(f"Retrieved {len(nodes)} node(s) for question: '{question}'")
+    for i, n in enumerate(nodes):
+        logger.info(f"Node {i+1} preview: {n.node.get_content()[:150]} | score={getattr(n, 'score', None)}")
+
+    # Lowered score threshold to catch more relevant nodes
+    filtered_nodes = [n for n in nodes if getattr(n, "score", 0) >= 0.2]
 
     if not filtered_nodes:
-        logger.info(f"No relevant chunks found for question: {question}")
+        logger.info(f"No relevant chunks found for question: '{question}'")
         return {"answer": fallback, "from_resume": False, "sources": []}
 
     ctx_lines, sources = [], []

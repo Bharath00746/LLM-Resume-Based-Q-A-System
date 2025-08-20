@@ -38,4 +38,3 @@ def ask(request: Request, question: str = Form(...)):
             "answer": answer
         }
     )
-

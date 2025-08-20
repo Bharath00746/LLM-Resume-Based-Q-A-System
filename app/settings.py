@@ -2,7 +2,6 @@ from pathlib import Path
 from pydantic_settings import BaseSettings
 
 
-# ...existing code...
 
 class Settings(BaseSettings):
     GEMINI_API_KEY: str | None = None
@@ -26,4 +25,3 @@ settings = Settings()
 # ensure dirs exist
 Path(settings.INDEX_DIR).mkdir(parents=True, exist_ok=True)
 Path(settings.RESUME_DIR).mkdir(parents=True, exist_ok=True)
-# ...existing code...
